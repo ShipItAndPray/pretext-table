@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pretext Table Demo — 10K Rows</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: Inter, -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #f0f2f5;
+      padding: 24px;
+    }
+    h1 { font-size: 24px; margin-bottom: 8px; }
+    .subtitle { color: #6c757d; margin-bottom: 16px; font-size: 14px; }
+    .stats { display: flex; gap: 16px; margin-bottom: 16px; font-size: 13px; }
+    .stat { background: white; padding: 8px 16px; border-radius: 6px; border: 1px solid #dee2e6; }
+    .stat b { color: #0d6efd; }
+    #root { background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .pretext-table-row:hover { background: #f8f9fa; }
+    .pretext-table-header-cell:hover .pretext-table-resize-handle { background: #adb5bd !important; }
+  </style>
+</head>
+<body>
+  <h1>@shipitandpray/pretext-table</h1>
+  <p class="subtitle">Virtualized data table with pre-measured columns — no DOM measurement, no layout shift</p>
+  <div class="stats">
+    <div class="stat"><b>10,000</b> rows</div>
+    <div class="stat"><b>7</b> columns</div>
+    <div class="stat"><b>120fps</b> scroll target</div>
+    <div class="stat">Column widths calculated <b>before</b> first render</div>
+  </div>
+  <div id="root"></div>
+
+  <script type="module">
+    import React from 'https://esm.sh/react@19?dev';
+    import ReactDOM from 'https://esm.sh/react-dom@19/client?dev';
+
+    // Since this is a demo, we inline a simplified version of PretextTable
+    // that works without bundling. In production, import from the package.
+
+    const ROWS = 10000;
+    const ROW_HEIGHT = 44;
+    const HEADER_HEIGHT = 44;
+    const OVERSCAN = 10;
+
+    const departments = ['Engineering', 'Marketing', 'Sales', 'Finance', 'HR', 'Legal', 'Design', 'Product', 'Support', 'Operations'];
+    const cities = ['San Francisco', 'New York', 'Austin', 'Seattle', 'Chicago', 'Denver', 'Boston', 'Portland', 'Miami', 'Dallas'];
+    const firstNames = ['Alice', 'Bob', 'Charlie', 'Diana', 'Eve', 'Frank', 'Grace', 'Henry', 'Iris', 'Jack', 'Kate', 'Liam', 'Mia', 'Noah', 'Olivia'];
+    const lastNames = ['Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Garcia', 'Miller', 'Davis', 'Rodriguez', 'Martinez'];
+
+    function generateData(count) {
+      const data = [];
+      for (let i = 0; i < count; i++) {
+        data.push({
+          id: i + 1,
+          name: `${firstNames[i % firstNames.length]} ${lastNames[i % lastNames.length]}`,
+          email: `${firstNames[i % firstNames.length].toLowerCase()}.${lastNames[i % lastNames.length].toLowerCase()}${i}@company.com`,
+          department: departments[i % departments.length],
+          city: cities[i % cities.length],
+          salary: 60000 + Math.floor(Math.random() * 140000),
+          joined: `${2018 + (i % 7)}-${String((i % 12) + 1).padStart(2, '0')}-${String((i % 28) + 1).padStart(2, '0')}`,
+        });
+      }
+      return data;
+    }
+
+    const columns = [
+      { key: 'id', header: 'ID', width: 70, sortable: true, resizable: false },
+      { key: 'name', header: 'Name', minWidth: 120, sortable: true },
+      { key: 'email', header: 'Email', minWidth: 180, sortable: true },
+      { key: 'department', header: 'Department', minWidth: 100, sortable: true },
+      { key: 'city', header: 'City', minWidth: 100, sortable: true },
+      { key: 'salary', header: 'Salary', minWidth: 90, sortable: true,
+        render: (val) => `$${val.toLocaleString()}` },
+      { key: 'joined', header: 'Joined', minWidth: 100, sortable: true },
+    ];
+
+    function App() {
+      const [data] = React.useState(() => generateData(ROWS));
+      const [sortKey, setSortKey] = React.useState(null);
+      const [sortDir, setSortDir] = React.useState('asc');
+      const [scrollTop, setScrollTop] = React.useState(0);
+      const [colWidths, setColWidths] = React.useState(() =>
+        columns.map(c => c.width || c.minWidth || 150)
+      );
+      const containerRef = React.useRef(null);
+      const [containerWidth, setContainerWidth] = React.useState(0);
+
+      React.useEffect(() => {
+        const el = containerRef.current;
+        if (!el) return;
+        const obs = new ResizeObserver(entries => {
+          setContainerWidth(entries[0].contentRect.width);
+        });
+        obs.observe(el);
+        return () => obs.disconnect();
+      }, []);
+
+      // Distribute remaining width
+      React.useEffect(() => {
+        if (containerWidth <= 0) return;
+        const fixedTotal = columns.reduce((s, c) => s + (c.width || c.minWidth || 150), 0);
+        if (fixedTotal < containerWidth) {
+          const resizableCount = columns.filter(c => c.resizable !== false && !c.width).length;
+          const extra = Math.floor((containerWidth - fixedTotal) / Math.max(1, resizableCount));
+          setColWidths(columns.map(c => {
+            if (c.width) return c.width;
+            if (c.resizable === false) return c.minWidth || 150;
+            return (c.minWidth || 150) + extra;
+          }));
+        }
+      }, [containerWidth]);
+
+      const sortedData = React.useMemo(() => {
+        if (!sortKey) return data;
+        const dir = sortDir === 'asc' ? 1 : -1;
+        return [...data].sort((a, b) => {
+          const av = a[sortKey], bv = b[sortKey];
+          if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+          return String(av).localeCompare(String(bv)) * dir;
+        });
+      }, [data, sortKey, sortDir]);
+
+      const viewportHeight = 600;
+      const bodyHeight = viewportHeight - HEADER_HEIGHT - 36; // footer ~36px
+      const totalHeight = sortedData.length * ROW_HEIGHT;
+      const startIdx = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
+      const endIdx = Math.min(sortedData.length, Math.ceil((scrollTop + bodyHeight) / ROW_HEIGHT) + OVERSCAN);
+
+      const handleSort = (key) => {
+        if (sortKey === key) {
+          setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+        } else {
+          setSortKey(key);
+          setSortDir('asc');
+        }
+      };
+
+      // Column resize via drag
+      const handleResizeStart = (colIdx, e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const startX = e.clientX;
+        const startW = colWidths[colIdx];
+        const onMove = (ev) => {
+          const diff = ev.clientX - startX;
+          const min = columns[colIdx].minWidth || 50;
+          const max = columns[colIdx].maxWidth || 600;
+          setColWidths(prev => {
+            const next = [...prev];
+            next[colIdx] = Math.max(min, Math.min(max, startW + diff));
+            return next;
+          });
+        };
+        const onUp = () => {
+          document.removeEventListener('mousemove', onMove);
+          document.removeEventListener('mouseup', onUp);
+        };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+      };
+
+      return React.createElement('div', {
+        ref: containerRef,
+        style: { height: viewportHeight, width: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column' }
+      },
+        // Header
+        React.createElement('div', {
+          style: {
+            display: 'flex', height: HEADER_HEIGHT, backgroundColor: '#f8f9fa',
+            borderBottom: '2px solid #dee2e6', fontWeight: 'bold', fontSize: 13, userSelect: 'none'
+          }
+        }, columns.map((col, ci) =>
+          React.createElement('div', {
+            key: col.key,
+            onClick: () => col.sortable && handleSort(col.key),
+            style: {
+              width: colWidths[ci], minWidth: colWidths[ci], maxWidth: colWidths[ci],
+              height: HEADER_HEIGHT, padding: '0 16px', display: 'flex', alignItems: 'center',
+              cursor: col.sortable ? 'pointer' : 'default', position: 'relative',
+              overflow: 'hidden', whiteSpace: 'nowrap', borderRight: '1px solid #e9ecef'
+            }
+          },
+            col.header + (sortKey === col.key ? (sortDir === 'asc' ? ' \u2191' : ' \u2193') : ''),
+            col.resizable !== false && React.createElement('div', {
+              onMouseDown: (e) => handleResizeStart(ci, e),
+              style: {
+                position: 'absolute', right: 0, top: 0, bottom: 0, width: 5,
+                cursor: 'col-resize', background: 'transparent'
+              }
+            })
+          )
+        )),
+        // Body
+        React.createElement('div', {
+          style: { flex: 1, overflow: 'auto' },
+          onScroll: (e) => setScrollTop(e.currentTarget.scrollTop)
+        },
+          React.createElement('div', { style: { height: totalHeight, position: 'relative' } },
+            React.createElement('div', { style: { position: 'absolute', top: startIdx * ROW_HEIGHT, left: 0, right: 0 } },
+              sortedData.slice(startIdx, endIdx).map((row, i) => {
+                const idx = startIdx + i;
+                return React.createElement('div', {
+                  key: idx,
+                  style: {
+                    display: 'flex', height: ROW_HEIGHT, borderBottom: '1px solid #f0f0f0',
+                    fontSize: 13, backgroundColor: idx % 2 === 0 ? '#fff' : '#fafbfc'
+                  }
+                }, columns.map((col, ci) =>
+                  React.createElement('div', {
+                    key: col.key,
+                    style: {
+                      width: colWidths[ci], minWidth: colWidths[ci], maxWidth: colWidths[ci],
+                      height: ROW_HEIGHT, padding: '0 16px', display: 'flex', alignItems: 'center',
+                      overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis'
+                    }
+                  }, col.render ? col.render(row[col.key], row) : String(row[col.key] ?? ''))
+                ));
+              })
+            )
+          )
+        ),
+        // Footer
+        React.createElement('div', {
+          style: {
+            padding: '8px 16px', borderTop: '1px solid #dee2e6', backgroundColor: '#f8f9fa',
+            fontSize: 12, color: '#6c757d'
+          }
+        }, `Showing ${startIdx + 1}\u2013${Math.min(endIdx, sortedData.length)} of ${sortedData.length.toLocaleString()} rows`)
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App));
+  </script>
+</body>
+</html>
