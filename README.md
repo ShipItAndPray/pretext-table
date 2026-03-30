@@ -1,5 +1,9 @@
 # @shipitandpray/pretext-table
 
+[![Live Demo](https://img.shields.io/badge/demo-live-brightgreen)](https://shipitandpray.github.io/pretext-table/) [![GitHub](https://img.shields.io/github/stars/ShipItAndPray/pretext-table?style=social)](https://github.com/ShipItAndPray/pretext-table)
+
+> **[View Live Demo](https://shipitandpray.github.io/pretext-table/)**
+
 Virtualized data table that auto-sizes columns and measures row heights using [@chenglou/pretext](https://github.com/chenglou/pretext) — no DOM measurement, no layout shift, handles 1M+ rows.
 
 ## The Problem
